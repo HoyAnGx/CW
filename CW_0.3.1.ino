@@ -4,24 +4,34 @@
 // 只用一枚ESP-01的两个GPIO控制发报
 // 由 BD1AMC 献上
 
+
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <LiquidCrystal_I2C.h>
 
-// WiFi设置
-const char* ssid = "@Ruijie"; // WiFi热点名称
-const char* password = "#plankton#"; // WiFi热点密码
+// WiFi凭据
+struct WiFiCred {
+  const char* ssid;
+  const char* password;
+};
+
+WiFiCred wifiCreds[] = {
+  {"@Ruijie", "#plankton#"},
+  {"BackupWiFi", "backup123"}
+};
+const int numWiFi = sizeof(wifiCreds) / sizeof(wifiCreds[0]);
 
 // Web服务器运行在端口80
 WebServer server(80);
 
 // LCD1602设置（I2C地址0x27，16列x2行）
-LiquidCrystal_I2C lcd(0x27, 16, 2); // LCD1602（I2C，SDA=GPIO 21，SCL=GPIO 22）
+LiquidCrystal_I2C lcd(0x27, 16, 2); // SDA=GPIO 21，SCL=GPIO 22
 
 // 引脚定义
 const int ledPin = 13;      // LED输出引脚（GPIO 13）
-const int cwOutputPin = 14; // CW输出引脚到电台（GPIO 14）
+const int cwOutputPin = 14; // CW输出引脚（GPIO 14）
 
 // 莫斯码表（A-Z, 0-9）
 const char* morseCode[] = {
@@ -35,7 +45,7 @@ const char* morseCode[] = {
   ".....", "-....", "--...", "---..", "----." // 5-9
 };
 
-// 莫斯码时间参数（毫秒，20 WPM）可以根据需求调整比例
+// 莫斯码时间参数（毫秒，20 WPM）
 const int dotDuration = 60;   // 点持续时间：60 ms
 const int dashDuration = 180; // 划持续时间：180 ms
 const int symbolGap = 60;     // 符号间间隔：60 ms
@@ -61,18 +71,24 @@ void setup() {
   lcd.init();
   lcd.backlight();                 // 开启背光以显示开机信息
   lcd.setCursor(0, 0);
-  lcd.print("BD1AMC");           // 第一行显示呼号 可更改
+  lcd.print("BD1AMC");           // 第一行显示呼号
   lcd.setCursor(0, 1);
   lcd.print("Connecting...");    // 第二行显示连接状态
 
   // 连接WiFi
   connectWiFi();
 
-  // 初始化mDNS 暂未能成功连接!!只能使用IP打开网页
+  // 初始化mDNS
   if (MDNS.begin("morse")) {
     Serial.println("mDNS启动: http://morse.local/");
+    lcd.setCursor(0, 1);
+    lcd.print("mDNS OK        ");
+    delay(1000);
   } else {
     Serial.println("mDNS启动失败");
+    lcd.setCursor(0, 1);
+    lcd.print("mDNS Failed    ");
+    delay(1000);
   }
 
   // 设置Web服务器路由
@@ -80,40 +96,61 @@ void setup() {
   server.on("/submit", handleSubmit);
   server.begin();
   Serial.println("Web服务器启动");
+  lcd.setCursor(0, 1);
+  lcd.print("Server OK      ");
+  delay(1000);
+
+  // 显示默认界面
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("BD1AMC MORSE");
+  lcd.setCursor(0, 1);
+  lcd.print(WiFi.localIP());
 }
 
-// 连接WiFi，支持重试
+// 连接WiFi，支持多WiFi尝试
 void connectWiFi() {
-  Serial.println("尝试连接WiFi: " + String(ssid));
-  WiFi.begin(ssid, password);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    Serial.print(" 状态: ");
-    Serial.println(WiFi.status());
-    attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi连接成功");
-    Serial.print("IP地址: ");
-    Serial.println(WiFi.localIP());
-    // 更新LCD显示IP地址
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("BD1AMC MORSE");
-    lcd.setCursor(0, 1);
-    lcd.print(WiFi.localIP());
-  } else {
-    Serial.println("\nWiFi连接失败");
+  while (WiFi.status() != WL_CONNECTED) {
+    // 尝试每个WiFi
+    for (int i = 0; i < numWiFi; i++) {
+      Serial.println("尝试连接WiFi: " + String(wifiCreds[i].ssid));
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("BD1AMC");
+      lcd.setCursor(0, 1);
+      lcd.print("Connecting..."); // 可选：显示wifiCreds[i].ssid（需截断）
+      WiFi.begin(wifiCreds[i].ssid, wifiCreds[i].password);
+      
+      int attempts = 0;
+      while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+      }
+      
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi连接成功");
+        Serial.print("IP地址: ");
+        Serial.println(WiFi.localIP());
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("BD1AMC MORSE");
+        lcd.setCursor(0, 1);
+        lcd.print(WiFi.localIP());
+        return; // 连接成功，退出
+      } else {
+        Serial.println("\n连接失败: " + String(wifiCreds[i].ssid));
+      }
+    }
+    
+    // 所有WiFi尝试失败
+    Serial.println("所有WiFi连接失败，重试...");
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("BD1AMC MORSE");
     lcd.setCursor(0, 1);
     lcd.print("WiFi Failed");
-    // 5秒后重试
-    delay(5000);
-    connectWiFi();
+    delay(5000); // 等待5秒后重试
   }
 }
 
@@ -199,6 +236,7 @@ void handleSubmit() {
       }
     }
     if (validInput.length() == 0) {
+      Serial.println("错误: 非法输入");
       server.send(400, "text/plain", "Invalid input");
       return;
     }
@@ -219,7 +257,7 @@ void handleSubmit() {
     }
     lcd.setCursor(0, 1);
 
-// 发送莫斯码
+    // 发送莫斯码
     for (int i = 0; i < validInput.length(); i++) {
       char c = validInput[i];
       if (c >= 'A' && c <= 'Z') {
@@ -250,33 +288,36 @@ void handleSubmit() {
     // 恢复LCD显示
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Standing By....."); //待命界面
+    lcd.print("Standing By.....");
     lcd.setCursor(0, 1);
     lcd.print(WiFi.localIP());
     lcd.noBacklight(); // 发报完成后关闭背光
     inputText = ""; // 清空报文
     scrollPos = 0;  // 重置滚动位置
 
+    Serial.println("发报完成");
     server.send(200, "text/plain", "OK");
   } else {
+    Serial.println("错误: 无输入");
     server.send(400, "text/plain", "Invalid input");
   }
 }
 
 // 播放莫斯码，控制CW、LED、背光和LCD
-void playMorse(String morse) {
-  // 居中显示莫斯码
-  int morseLength = morse.length();
-  int startCol = (16 - morseLength) / 2; // 居中起始列
+void playMorse(String morse, char letter) {
+  // 居中显示 (字母) 莫斯码
+  String displayStr = "(" + String(letter) + ") " + morse;
+  int totalLength = displayStr.length();
+  int startCol = (16 - totalLength) / 2; // 居中起始列
   lcd.setCursor(0, 1);
   // 填充左边空格
   for (int i = 0; i < startCol; i++) {
     lcd.print(" ");
   }
-  // 显示莫斯码
-  lcd.print(morse);
+  // 显示 (字母) 莫斯码
+  lcd.print(displayStr);
   // 填充右边空格
-  for (int i = startCol + morseLength; i < 16; i++) {
+  for (int i = startCol + totalLength; i < 16; i++) {
     lcd.print(" ");
   }
 
@@ -285,24 +326,24 @@ void playMorse(String morse) {
     char symbol = morse[i];
     if (symbol == '.') {
       Serial.println("CW点: 高电平（电键按下，触发发送）");
-      digitalWrite(cwOutputPin, HIGH); // 模拟电键按下（3.3V，触发发送）
-      digitalWrite(ledPin, HIGH);
-      lcd.backlight();                 // 开启背光
+      digitalWrite(cwOutputPin, HIGH); // 电键按下（3.3V，触发发送）
+      digitalWrite(ledPin, HIGH);      // LED点亮
+      //lcd.backlight();                 // 开启背光
       delay(dotDuration);
       Serial.println("CW点: 低电平（电键释放，空闲）");
-      digitalWrite(cwOutputPin, LOW);  // 模拟电键释放（0V，空闲）
-      digitalWrite(ledPin, LOW);
-      lcd.noBacklight();               // 关闭背光
+      digitalWrite(cwOutputPin, LOW);  // 电键释放（0V，空闲）
+      digitalWrite(ledPin, LOW);       // LED关闭
+      //lcd.noBacklight();               // 关闭背光
     } else if (symbol == '-') {
       Serial.println("CW划: 高电平（电键按下，触发发送）");
-      digitalWrite(cwOutputPin, HIGH); // 模拟电键按下（3.3V，触发发送）
-      digitalWrite(ledPin, HIGH);
-      lcd.backlight();                 // 开启背光
+      digitalWrite(cwOutputPin, HIGH); // 电键按下（3.3V，触发发送）
+      digitalWrite(ledPin, HIGH);      // LED点亮
+      //lcd.backlight();                 // 开启背光
       delay(dashDuration);
       Serial.println("CW划: 低电平（电键释放，空闲）");
-      digitalWrite(cwOutputPin, LOW);  // 模拟电键释放（0V，空闲）
-      digitalWrite(ledPin, LOW);
-      lcd.noBacklight();               // 关闭背光
+      digitalWrite(cwOutputPin, LOW);  // 电键释放（0V，空闲）
+      digitalWrite(ledPin, LOW);       // LED关闭
+      //lcd.noBacklight();               // 关闭背光
     }
     // 更新第一行滚动显示
     if (inputText.length() > 16) {
