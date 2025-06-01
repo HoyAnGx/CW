@@ -16,10 +16,9 @@ struct WiFiCred {
   const char* ssid;
   const char* password;
 };
-
 WiFiCred wifiCreds[] = {
   {"@Ruijie", "#plankton#"},
-  {"BackupWiFi", "backup123"}
+  {"NETGEAR", "classover"}
 };
 const int numWiFi = sizeof(wifiCreds) / sizeof(wifiCreds[0]);
 
@@ -56,29 +55,19 @@ const int wordGap = 420;      // 单词间间隔：420 ms
 String inputText = ""; // 存储当前报文
 int scrollPos = 0;     // 滚动起始位置
 
-// 初始化硬件和网络
 void setup() {
-  // 初始化串口用于调试
   Serial.begin(115200);
-
-  // 初始化引脚并设置默认状态
   pinMode(ledPin, OUTPUT);
   pinMode(cwOutputPin, OUTPUT);
   digitalWrite(ledPin, LOW);       // LED断开
-  digitalWrite(cwOutputPin, LOW);  // CW低电平（空闲）
-
-  // 初始化LCD1602
+  digitalWrite(cwOutputPin, HIGH); // CW高电平（空闲，电台静音）
   lcd.init();
-  lcd.backlight();                 // 开启背光以显示开机信息
+  lcd.backlight();
   lcd.setCursor(0, 0);
-  lcd.print("BD1AMC");           // 第一行显示呼号
+  lcd.print("BD1AMC");
   lcd.setCursor(0, 1);
-  lcd.print("Connecting...");    // 第二行显示连接状态
-
-  // 连接WiFi
+  lcd.print("Connecting...");
   connectWiFi();
-
-  // 初始化mDNS
   if (MDNS.begin("morse")) {
     Serial.println("mDNS启动: http://morse.local/");
     lcd.setCursor(0, 1);
@@ -90,8 +79,6 @@ void setup() {
     lcd.print("mDNS Failed    ");
     delay(1000);
   }
-
-  // 设置Web服务器路由
   server.on("/", handleRoot);
   server.on("/submit", handleSubmit);
   server.begin();
@@ -99,8 +86,6 @@ void setup() {
   lcd.setCursor(0, 1);
   lcd.print("Server OK      ");
   delay(1000);
-
-  // 显示默认界面
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("BD1AMC MORSE");
@@ -108,26 +93,22 @@ void setup() {
   lcd.print(WiFi.localIP());
 }
 
-// 连接WiFi，支持多WiFi尝试
 void connectWiFi() {
   while (WiFi.status() != WL_CONNECTED) {
-    // 尝试每个WiFi
     for (int i = 0; i < numWiFi; i++) {
       Serial.println("尝试连接WiFi: " + String(wifiCreds[i].ssid));
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("BD1AMC");
       lcd.setCursor(0, 1);
-      lcd.print("Connecting..."); // 可选：显示wifiCreds[i].ssid（需截断）
+      lcd.print("Connecting...");
       WiFi.begin(wifiCreds[i].ssid, wifiCreds[i].password);
-      
       int attempts = 0;
       while (WiFi.status() != WL_CONNECTED && attempts < 20) {
         delay(500);
         Serial.print(".");
         attempts++;
       }
-      
       if (WiFi.status() == WL_CONNECTED) {
         Serial.println("\nWiFi连接成功");
         Serial.print("IP地址: ");
@@ -137,33 +118,28 @@ void connectWiFi() {
         lcd.print("BD1AMC MORSE");
         lcd.setCursor(0, 1);
         lcd.print(WiFi.localIP());
-        return; // 连接成功，退出
+        return;
       } else {
         Serial.println("\n连接失败: " + String(wifiCreds[i].ssid));
       }
     }
-    
-    // 所有WiFi尝试失败
     Serial.println("所有WiFi连接失败，重试...");
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("BD1AMC MORSE");
     lcd.setCursor(0, 1);
     lcd.print("WiFi Failed");
-    delay(5000); // 等待5秒后重试
+    delay(5000);
   }
 }
 
-// 主循环，处理客户端请求并保持空闲状态
 void loop() {
   server.handleClient();
-  // 无输入时保持默认状态
   digitalWrite(ledPin, LOW);       // LED断开
-  digitalWrite(cwOutputPin, LOW);  // CW低电平（空闲）
-  lcd.noBacklight();               // 空闲时关闭背光
+  digitalWrite(cwOutputPin, HIGH); // CW高电平（空闲，电台静音）
+  lcd.noBacklight();
 }
 
-// 主页面，显示输入框和快捷按钮
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
@@ -222,12 +198,10 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-// 处理提交的报文，发送莫斯码
 void handleSubmit() {
   if (server.hasArg("text")) {
     String input = server.arg("text");
     input.toUpperCase();
-    // 验证输入，仅保留A-Z、0-9和空格
     String validInput = "";
     for (int i = 0; i < input.length(); i++) {
       char c = input[i];
@@ -241,23 +215,17 @@ void handleSubmit() {
       return;
     }
     Serial.println("Received: " + validInput);
-
-    // 初始化滚动显示
     inputText = validInput;
     scrollPos = 0;
-
-    // 更新LCD显示报文
     lcd.clear();
-    lcd.backlight(); // 确保发报时背光开启
+    lcd.backlight();
     lcd.setCursor(0, 0);
     if (validInput.length() > 16) {
-      lcd.print(validInput.substring(0, 16)); // 显示前16字符
+      lcd.print(validInput.substring(0, 16));
     } else {
-      lcd.print(validInput); // 显示完整报文
+      lcd.print(validInput);
     }
     lcd.setCursor(0, 1);
-
-    // 发送莫斯码
     for (int i = 0; i < validInput.length(); i++) {
       char c = validInput[i];
       if (c >= 'A' && c <= 'Z') {
@@ -265,7 +233,6 @@ void handleSubmit() {
         Serial.println("发送字符: " + String(c) + " (" + morse + ")");
         playMorse(morse, c);
         delay(letterGap);
-        // 清空第二行，准备下一个字符
         lcd.setCursor(0, 1);
         lcd.print("                ");
       } else if (c >= '0' && c <= '9') {
@@ -273,28 +240,23 @@ void handleSubmit() {
         Serial.println("发送字符: " + String(c) + " (" + morse + ")");
         playMorse(morse, c);
         delay(letterGap);
-        // 清空第二行，准备下一个字符
         lcd.setCursor(0, 1);
         lcd.print("                ");
       } else if (c == ' ') {
         Serial.println("单词间隔");
         delay(wordGap);
-        // 清空第二行，准备下一个字符
         lcd.setCursor(0, 1);
         lcd.print("                ");
       }
     }
-
-    // 恢复LCD显示
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Standing By.....");
+    lcd.print("Standing by.....");
     lcd.setCursor(0, 1);
     lcd.print(WiFi.localIP());
-    lcd.noBacklight(); // 发报完成后关闭背光
-    inputText = ""; // 清空报文
-    scrollPos = 0;  // 重置滚动位置
-
+    lcd.noBacklight();
+    inputText = "";
+    scrollPos = 0;
     Serial.println("发报完成");
     server.send(200, "text/plain", "OK");
   } else {
@@ -303,49 +265,41 @@ void handleSubmit() {
   }
 }
 
-// 播放莫斯码，控制CW、LED、背光和LCD
 void playMorse(String morse, char letter) {
-  // 居中显示 (字母) 莫斯码
   String displayStr = "(" + String(letter) + ") " + morse;
   int totalLength = displayStr.length();
-  int startCol = (16 - totalLength) / 2; // 居中起始列
+  int startCol = (16 - totalLength) / 2;
   lcd.setCursor(0, 1);
-  // 填充左边空格
   for (int i = 0; i < startCol; i++) {
     lcd.print(" ");
   }
-  // 显示 (字母) 莫斯码
   lcd.print(displayStr);
-  // 填充右边空格
   for (int i = startCol + totalLength; i < 16; i++) {
     lcd.print(" ");
   }
-
-  // 播放点划
   for (int i = 0; i < morse.length(); i++) {
     char symbol = morse[i];
     if (symbol == '.') {
-      Serial.println("CW点: 高电平（电键按下，触发发送）");
-      digitalWrite(cwOutputPin, HIGH); // 电键按下（3.3V，触发发送）
+      Serial.println("CW点: 低电平（电键按下，触发发送）");
+      digitalWrite(cwOutputPin, LOW);  // 电键按下（0V，触发发送）
       digitalWrite(ledPin, HIGH);      // LED点亮
-      //lcd.backlight();                 // 开启背光
+      lcd.backlight();
       delay(dotDuration);
-      Serial.println("CW点: 低电平（电键释放，空闲）");
-      digitalWrite(cwOutputPin, LOW);  // 电键释放（0V，空闲）
-      digitalWrite(ledPin, LOW);       // LED关闭
-      //lcd.noBacklight();               // 关闭背光
+      Serial.println("CW点: 高电平（电键释放，空闲）");
+      digitalWrite(cwOutputPin, HIGH); // 电键释放（3.3V，空闲）
+      digitalWrite(ledPin, LOW);
+      lcd.noBacklight();
     } else if (symbol == '-') {
-      Serial.println("CW划: 高电平（电键按下，触发发送）");
-      digitalWrite(cwOutputPin, HIGH); // 电键按下（3.3V，触发发送）
+      Serial.println("CW划: 低电平（电键按下，触发发送）");
+      digitalWrite(cwOutputPin, LOW);  // 电键按下（0V，触发发送）
       digitalWrite(ledPin, HIGH);      // LED点亮
-      //lcd.backlight();                 // 开启背光
+      lcd.backlight();
       delay(dashDuration);
-      Serial.println("CW划: 低电平（电键释放，空闲）");
-      digitalWrite(cwOutputPin, LOW);  // 电键释放（0V，空闲）
-      digitalWrite(ledPin, LOW);       // LED关闭
-      //lcd.noBacklight();               // 关闭背光
+      Serial.println("CW划: 高电平（电键释放，空闲）");
+      digitalWrite(cwOutputPin, HIGH); // 电键释放（3.3V，空闲）
+      digitalWrite(ledPin, LOW);
+      lcd.noBacklight();
     }
-    // 更新第一行滚动显示
     if (inputText.length() > 16) {
       lcd.setCursor(0, 0);
       int endPos = scrollPos + 16;
@@ -353,13 +307,12 @@ void playMorse(String morse, char letter) {
         endPos = inputText.length();
       }
       lcd.print(inputText.substring(scrollPos, endPos));
-      // 填充剩余空间
       for (int j = endPos - scrollPos; j < 16; j++) {
         lcd.print(" ");
       }
       scrollPos++;
       if (scrollPos >= inputText.length() - 15) {
-        scrollPos = 0; // 循环滚动
+        scrollPos = 0;
       }
     }
     delay(symbolGap);
